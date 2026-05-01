@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Manager</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+    .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-success { background: #10b981; color: white; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; margin-top: 4px; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+    label { font-size: 13px; font-weight: 600; color: #555; }
+    .form-group { margin-bottom: 14px; }
+    .error { color: #ef4444; font-size: 13px; margin-top: 6px; background: #fef2f2; padding: 8px 12px; border-radius: 6px; }
+    .success { color: #10b981; font-size: 13px; margin-top: 6px; background: #f0fdf4; padding: 8px 12px; border-radius: 6px; }
+    nav { background: #4f46e5; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+    nav .logo { color: white; font-size: 18px; font-weight: 700; }
+    nav .nav-right { display: flex; gap: 12px; align-items: center; color: white; font-size: 14px; }
+    .task-grid { display: grid; gap: 12px; }
+    .task-card { background: white; border-radius: 10px; padding: 16px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border-left: 4px solid #4f46e5; display: flex; justify-content: space-between; align-items: flex-start; }
+    .task-card.high { border-left-color: #ef4444; }
+    .task-card.medium { border-left-color: #f59e0b; }
+    .task-card.low { border-left-color: #10b981; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge-todo { background: #e5e7eb; color: #555; }
+    .badge-in_progress { background: #dbeafe; color: #1d4ed8; }
+    .badge-done { background: #d1fae5; color: #047857; }
+    .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; }
+    .tab { padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; border: none; background: #e5e7eb; color: #555; }
+    .tab.active { background: #4f46e5; color: white; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: white; border-radius: 16px; padding: 28px; width: 420px; max-width: 95vw; }
+    h1 { font-size: 24px; margin-bottom: 6px; }
+    h2 { font-size: 18px; margin-bottom: 16px; }
+    .stat-row { display: flex; gap: 16px; margin-bottom: 20px; }
+    .stat-box { flex: 1; background: #4f46e5; color: white; border-radius: 10px; padding: 16px 20px; text-align: center; }
+    .stat-box .num { font-size: 32px; font-weight: 700; }
+    .stat-box .lbl { font-size: 12px; opacity: 0.85; }
+    .actions { display: flex; gap: 8px; margin-top: 8px; }
+    .empty { text-align: center; color: #9ca3af; padding: 40px; }
+    @media(max-width: 600px) { .stat-row { flex-direction: column; } }
+  </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const API = 'http://localhost:5000/api/v1';
+
+// ── API helper ───────────────────────────────────────────────────────────────
+const api = async (path, options = {}) => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...options,
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.message || 'Request failed');
+  return data;
+};
+
+// ── Auth context ─────────────────────────────────────────────────────────────
+const AuthCtx = React.createContext(null);
+function useAuth() { return React.useContext(AuthCtx); }
+
+function AuthProvider({ children }) {
+  const [user, setUser] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      api('/auth/me').then(d => setUser(d.data)).catch(() => localStorage.removeItem('token')).finally(() => setLoading(false));
+    } else setLoading(false);
+  }, []);
+
+  const login = async (email, password) => {
+    const d = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    localStorage.setItem('token', d.data.token);
+    setUser(d.data.user);
+  };
+
+  const register = async (username, email, password) => {
+    const d = await api('/auth/register', { method: 'POST', body: JSON.stringify({ username, email, password }) });
+    localStorage.setItem('token', d.data.token);
+    setUser(d.data.user);
+  };
+
+  const logout = () => { localStorage.removeItem('token'); setUser(null); };
+
+  return <AuthCtx.Provider value={{ user, login, register, logout, loading }}>{children}</AuthCtx.Provider>;
+}
+
+// ── Login Page ───────────────────────────────────────────────────────────────
+function AuthPage() {
+  const { login, register } = useAuth();
+  const [tab, setTab] = React.useState('login');
+  const [form, setForm] = React.useState({ username: '', email: '', password: '' });
+  const [msg, setMsg] = React.useState({ error: '', success: '' });
+  const [busy, setBusy] = React.useState(false);
+
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setMsg({ error: '', success: '' });
+    try {
+      if (tab === 'login') await login(form.email, form.password);
+      else await register(form.username, form.email, form.password);
+    } catch (err) {
+      setMsg({ error: err.message, success: '' });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' }}>
+      <div className="card" style={{ width: 380, maxWidth: '95vw' }}>
+        <h1 style={{ textAlign: 'center', marginBottom: 4 }}>📋 Task Manager</h1>
+        <p style={{ textAlign: 'center', color: '#888', marginBottom: 20, fontSize: 13 }}>Secure task management with RBAC</p>
+        <div className="tab-bar">
+          <button className={`tab ${tab === 'login' ? 'active' : ''}`} style={{ flex: 1 }} onClick={() => setTab('login')}>Login</button>
+          <button className={`tab ${tab === 'register' ? 'active' : ''}`} style={{ flex: 1 }} onClick={() => setTab('register')}>Register</button>
+        </div>
+        <form onSubmit={submit}>
+          {tab === 'register' && (
+            <div className="form-group">
+              <label>Username</label>
+              <input placeholder="johndoe" value={form.username} onChange={set('username')} required />
+            </div>
+          )}
+          <div className="form-group">
+            <label>Email</label>
+            <input type="email" placeholder="john@example.com" value={form.email} onChange={set('email')} required />
+          </div>
+          <div className="form-group">
+            <label>Password</label>
+            <input type="password" placeholder="••••••••" value={form.password} onChange={set('password')} required />
+          </div>
+          {msg.error && <div className="error">⚠️ {msg.error}</div>}
+          {msg.success && <div className="success">✅ {msg.success}</div>}
+          <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} disabled={busy}>
+            {busy ? 'Please wait…' : tab === 'login' ? 'Login' : 'Create Account'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Task Form Modal ───────────────────────────────────────────────────────────
+function TaskModal({ task, onClose, onSaved }) {
+  const [form, setForm] = React.useState(task || { title: '', description: '', status: 'todo', priority: 'medium', dueDate: '' });
+  const [error, setError] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setError('');
+    try {
+      if (task) await api(`/tasks/${task.id}`, { method: 'PUT', body: JSON.stringify(form) });
+      else await api('/tasks', { method: 'POST', body: JSON.stringify(form) });
+      onSaved();
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h2>{task ? '✏️ Edit Task' : '➕ New Task'}</h2>
+        <form onSubmit={submit}>
+          <div className="form-group"><label>Title *</label><input value={form.title} onChange={set('title')} required /></div>
+          <div className="form-group"><label>Description</label><textarea rows={3} value={form.description} onChange={set('description')} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label>Status</label>
+              <select value={form.status} onChange={set('status')}>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="done">Done</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Priority</label>
+              <select value={form.priority} onChange={set('priority')}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-group"><label>Due Date</label><input type="date" value={form.dueDate} onChange={set('dueDate')} /></div>
+          {error && <div className="error">⚠️ {error}</div>}
+          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <button type="button" className="btn" style={{ flex: 1, background: '#e5e7eb' }} onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={busy}>{busy ? 'Saving…' : 'Save Task'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function Dashboard() {
+  const { user, logout } = useAuth();
+  const [tasks, setTasks] = React.useState([]);
+  const [pagination, setPagination] = React.useState({});
+  const [filter, setFilter] = React.useState({ status: '', priority: '' });
+  const [modal, setModal] = React.useState(null); // null | 'new' | task object
+  const [msg, setMsg] = React.useState('');
+
+  const load = async () => {
+    try {
+      const params = new URLSearchParams({ page: 1, limit: 20, ...Object.fromEntries(Object.entries(filter).filter(([,v]) => v)) });
+      const d = await api(`/tasks?${params}`);
+      setTasks(d.data.tasks);
+      setPagination(d.data.pagination);
+    } catch (e) { setMsg(e.message); }
+  };
+
+  React.useEffect(() => { load(); }, [filter]);
+
+  const deleteTask = async (id) => {
+    if (!confirm('Delete this task?')) return;
+    try { await api(`/tasks/${id}`, { method: 'DELETE' }); load(); }
+    catch (e) { setMsg(e.message); }
+  };
+
+  const statusBadge = (s) => <span className={`badge badge-${s}`}>{s.replace('_', ' ')}</span>;
+
+  return (
+    <>
+      <nav>
+        <span className="logo">📋 Task Manager</span>
+        <div className="nav-right">
+          <span>👤 {user.username} <span style={{ opacity: 0.7, fontSize: 11 }}>({user.role})</span></span>
+          <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.2)', color: 'white' }} onClick={logout}>Logout</button>
+        </div>
+      </nav>
+
+      <div className="container" style={{ paddingTop: 24 }}>
+        {msg && <div className="error" style={{ marginBottom: 12 }}>⚠️ {msg}</div>}
+
+        <div className="stat-row">
+          <div className="stat-box"><div className="num">{tasks.length}</div><div className="lbl">Total Tasks</div></div>
+          <div className="stat-box" style={{ background: '#7c3aed' }}><div className="num">{tasks.filter(t => t.status === 'in_progress').length}</div><div className="lbl">In Progress</div></div>
+          <div className="stat-box" style={{ background: '#10b981' }}><div className="num">{tasks.filter(t => t.status === 'done').length}</div><div className="lbl">Done</div></div>
+        </div>
+
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={{ marginBottom: 0 }}>My Tasks</h2>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select style={{ width: 130 }} value={filter.status} onChange={e => setFilter(f => ({ ...f, status: e.target.value }))}>
+                <option value="">All Status</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="done">Done</option>
+              </select>
+              <select style={{ width: 130 }} value={filter.priority} onChange={e => setFilter(f => ({ ...f, priority: e.target.value }))}>
+                <option value="">All Priority</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <button className="btn btn-primary btn-sm" onClick={() => setModal('new')}>+ New Task</button>
+            </div>
+          </div>
+
+          <div className="task-grid">
+            {tasks.length === 0
+              ? <div className="empty">No tasks found. Create one! 🎉</div>
+              : tasks.map(t => (
+                <div key={t.id} className={`task-card ${t.priority}`}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t.title}</div>
+                    {t.description && <div style={{ color: '#666', fontSize: 13, marginBottom: 6 }}>{t.description}</div>}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {statusBadge(t.status)}
+                      <span className="badge" style={{ background: '#fef3c7', color: '#92400e' }}>{t.priority}</span>
+                      {t.dueDate && <span style={{ fontSize: 11, color: '#888' }}>📅 {t.dueDate}</span>}
+                    </div>
+                  </div>
+                  <div className="actions">
+                    <button className="btn btn-sm" style={{ background: '#e0e7ff', color: '#4f46e5' }} onClick={() => setModal(t)}>Edit</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => deleteTask(t.id)}>Del</button>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+
+      {modal && (
+        <TaskModal
+          task={modal === 'new' ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load(); }}
+        />
+      )}
+    </>
+  );
+}
+
+// ── Root App ─────────────────────────────────────────────────────────────────
+function App() {
+  const { user, loading } = useAuth();
+  if (loading) return <div style={{ textAlign: 'center', marginTop: 100, fontSize: 18 }}>Loading…</div>;
+  return user ? <Dashboard /> : <AuthPage />;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <AuthProvider><App /></AuthProvider>
+);
+</script>
+</body>
+</html>
