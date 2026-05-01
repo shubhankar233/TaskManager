@@ -1,0 +1,6 @@
+name: taskmanager
+channels:
+  - defaults
+dependencies:
+  - nodejs=18
+prefix: C:\Users\shubh\anaconda3\envs\taskmanager
