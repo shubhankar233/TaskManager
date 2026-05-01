@@ -366,4 +366,4 @@ Or visit the live Swagger UI at `http://localhost:5000/api-docs`.
 
 ## 👤 Author
 
-Built as part of the **Primetrade.ai Backend Developer Intern** assignment.
+Shubhankar Gite
